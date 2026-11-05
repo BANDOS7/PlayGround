@@ -49,7 +49,7 @@
           <button class="diff-btn" data-diff="nightmare" type="button"><strong>ALBTRAUM</strong><span>2 Bälle · brutal</span></button>
         </div>
         <button id="startBtn" class="cta" type="button">
-          <span>EINSATZ STARTEN<small>TASTE FÜR EINEN FINGER</small></span>
+          <span>EINSATZ STARTEN<small>EIN FINGER GENÜGT</small></span>
           <span class="arrow">›</span>
         </button>
         <div class="menu-row">
@@ -97,6 +97,10 @@
 
     <div class="game-stage" id="gameStage">
       <div class="scanlines"></div>
+      <div class="field-controls" id="fieldControls" aria-hidden="true">
+        <div class="field-zone" data-side="-1"></div>
+        <div class="field-zone" data-side="1"></div>
+      </div>
     </div>
 
     <footer class="controls" aria-label="Flippersteuerung">
@@ -111,7 +115,7 @@
         <div class="launch-wrap">
           <button id="launchBtn" class="launch-btn ready" type="button">ABSCHUSS<small>TIPPEN ZUM STARTEN</small></button>
         </div>
-        <div class="control-hint" id="controlHint">1 FINGER · 2 FLÜGEL · 100% WUT</div>
+        <div class="control-hint" id="controlHint">1 FINGER · FELD LINKS / RECHTS</div>
       </div>
       <button id="rightBtn" class="flip-btn" type="button" aria-label="Rechter Flipper">
         <span class="key">▶</span>

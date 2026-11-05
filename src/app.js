@@ -39,6 +39,10 @@ let activeStage = menuStage;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+const lerpAngle = (a, b, t) => {
+  let d = ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI;
+  return a + d * t;
+};
 const rand = (a = 0, b = 1) => a + Math.random() * (b - a);
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const fmt = n => Math.floor(n).toLocaleString('de-DE');
@@ -305,7 +309,7 @@ try {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.12;
+  renderer.toneMappingExposure = 1.24;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 } catch (err) {
@@ -464,18 +468,24 @@ function createDachshund(opts = {}) {
     body.add(tuft);
   }
 
-  // Tactical harness.
-  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.48, 0.62), vestMat);
+  // Tactical harness: a snug rounded shell instead of a boxy crate.
+  const vest = new THREE.Mesh(new THREE.CapsuleGeometry(0.345, 0.52, 5, 18), vestMat);
+  vest.rotation.z = Math.PI / 2;
   vest.position.set(-0.02, 0.78, 0);
+  vest.scale.set(1, 0.94, 1.03);
   body.add(vest);
-  const vestSideL = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.34, 0.11), armorMat);
+  const vestStrapF = new THREE.Mesh(new THREE.TorusGeometry(0.352, 0.028, 6, 22), armorMat);
+  vestStrapF.rotation.y = Math.PI / 2; vestStrapF.position.set(0.42, 0.78, 0); vestStrapF.scale.set(1, 0.94, 1.03);
+  body.add(vestStrapF);
+  const vestStrapR = vestStrapF.clone(); vestStrapR.position.x = -0.42; body.add(vestStrapR);
+  const vestSideL = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.3, 0.1), armorMat);
   vestSideL.position.set(0, 0.66, 0.34);
   body.add(vestSideL);
   const vestSideR = vestSideL.clone(); vestSideR.position.z = -0.34; body.add(vestSideR);
   const buckle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 12), acidMat);
-  buckle.rotation.x = Math.PI / 2; buckle.position.set(0.24, 0.78, 0.38); body.add(buckle);
+  buckle.rotation.x = Math.PI / 2; buckle.position.set(0.24, 0.78, 0.4); body.add(buckle);
   const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.15), new THREE.MeshBasicMaterial({ map: TEX.dogPatch, transparent: true }));
-  plate.position.set(-0.08, 0.72, 0.352); body.add(plate);
+  plate.position.set(-0.08, 0.7, 0.398); body.add(plate);
   const pack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.28, 0.42), black);
   pack.position.set(-0.36, 0.97, 0); body.add(pack);
   const packLight = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.06, 0.02), acidMat);
@@ -621,36 +631,42 @@ function createDachshund(opts = {}) {
     t: 0, nextBlink: 2.4, blinkAt: -10, nextBark: 6.5, barkAt: -10,
     look: 0, targetLook: 0, excited: 0, alive: true
   };
-  root.userData = { dog: st, head, jaw, tongue, eyes, ears, legs, tailSegments, body, antennaTip, tailGlow };
+  root.userData = { dog: st, head, jaw, tongue, eyes, ears, legs, tailSegments, body, antennaTip, tailGlow, nose };
   root.userData.update = (dt, t, opts2 = {}) => {
     st.t = t;
     const excited = opts2.excited || st.excited;
+    const sniff = clamp(opts2.sniff || 0, 0, 1);
+    const alert = opts2.alert != null ? opts2.alert : (excited > 0.25 ? 1 : 0);
+    const gait = opts2.gait ? 1 : 0;
     const breathe = Math.sin(t * 2.05 + 0.4) * 0.012;
-    body.position.y = breathe;
+    body.position.y = breathe + (gait ? Math.abs(Math.sin(t * 9.5)) * 0.032 : 0);
     torso.scale.y = 1 + Math.sin(t * 2.05) * 0.018;
     chest.scale.y = 1.18 + Math.sin(t * 2.05 + .5) * 0.016;
     st.look = lerp(st.look, st.targetLook, 1 - Math.exp(-dt * 4));
-    const alert = excited > 0.25 ? 1 : 0;
-    head.rotation.y = Math.sin(t * .7 + .3) * .10 + st.look * .42 + (alert ? Math.sin(t * 12) * .035 : 0);
+    head.rotation.y = Math.sin(t * .7 + .3) * .10 + st.look * .42 + (alert ? Math.sin(t * 12) * .035 : 0) + (sniff ? Math.sin(t * 9) * .05 : 0);
     head.rotation.z = Math.sin(t * 1.2 + .5) * .035 - alert * .05;
-    head.rotation.x = Math.sin(t * .8 + .2) * .025;
-    neck.rotation.z = Math.sin(t * 1.7 + .4) * .018;
+    head.rotation.x = Math.sin(t * .8 + .2) * .025 + sniff * .34 + (gait ? Math.sin(t * 18) * .012 : 0);
+    head.position.y = .1 - sniff * .055;
+    neck.rotation.z = Math.sin(t * 1.7 + .4) * .018 + (opts2.neckUp || 0);
+    neck.rotation.x = sniff * .12;
     ears[0].rotation.x = .08 + Math.sin(t * 2.1 + 1.2) * .08 + (alert ? .28 : 0);
     ears[1].rotation.x = .08 + Math.sin(t * 1.9 + 2.4) * .08 + (alert ? .28 : 0);
     ears[0].rotation.z = .15 + Math.sin(t * 2.3) * .05;
     ears[1].rotation.z = -.15 + Math.sin(t * 2.1 + 1) * .05;
     tailSegments.forEach((s, i) => {
-      const amp = .12 + i * .045 + (excited > .5 ? .16 : 0);
-      s.rotation.y = Math.sin(t * (6.2 + excited * 4) - i * .55) * amp;
+      const amp = .12 + i * .045 + (excited > .5 ? .16 : 0) + (gait ? .06 : 0);
+      s.rotation.y = Math.sin(t * (6.2 + excited * 4 + gait * 1.2) - i * .55) * amp;
       s.rotation.z = Math.sin(t * 2.4 - i * .3) * .035 + .02;
     });
-    tailBase.rotation.z = .36 + Math.sin(t * 2.0) * .06;
-    // Paws: relaxed weight shift, occasional impatient tapping.
+    tailBase.rotation.z = .36 + Math.sin(t * 2.0) * .06 + (excited > .4 ? .08 : 0);
+    // Paws: relaxed weight shift, walking gait, occasional impatient tapping.
     legs.forEach((leg, i) => {
       const front = i < 2;
       const tap = Math.max(0, Math.sin(t * 6.3 + i * 2.1) - 0.78) * (front ? 0.28 : 0.1);
+      const gaitSwing = gait ? Math.sin(t * 9.5 + ((i === 0 || i === 3) ? 0 : Math.PI)) * .38 : 0;
       leg.rotation.z = (front ? 0.04 : -0.04) + Math.sin(t * 2 + i) * 0.018 + (excited > .4 ? Math.sin(t * 11 + i * 1.4) * 0.09 : 0) - tap;
-      leg.rotation.x = Math.sin(t * 2.1 + i * 1.6) * 0.022;
+      leg.rotation.x = Math.sin(t * 2.1 + i * 1.6) * 0.022 + gaitSwing;
+      leg.position.y = 0.6 + (gait ? Math.max(0, Math.sin(t * 9.5 + ((i === 1 || i === 2) ? 0 : Math.PI))) * .045 : 0);
     });
     // Blink.
     if (t > st.nextBlink) {
@@ -681,6 +697,8 @@ function createDachshund(opts = {}) {
     }
     st.excited = Math.max(0, st.excited - dt * .55);
     antennaTip.scale.setScalar(1 + Math.sin(t * 5.2) * .18);
+    nose.scale.set(1.12 + sniff * Math.sin(t * 16) * .05, .76, 1);
+    nose.position.x = .63 + sniff * Math.sin(t * 16) * .008;
     tailGlow.material.opacity = .22 + Math.sin(t * 5) * .12;
     root.position.y = opts2.baseY != null ? opts2.baseY + breathe : root.position.y;
   };
@@ -774,6 +792,7 @@ function createGuard(opts = {}) {
 /* ───────────────────────────── MENU SCENE ───────────────────────────── */
 let menuScene, menuCamera, menuDog, menuActors = [], menuSmoke = [], menuAsh, menuBeacon, menuSpotlights = [];
 let menuFlash = 0;
+const menuDogPose = { x: 0.04, rot: -0.52 };
 
 function makeSmokeTexture() {
   return canvasTexture(256, 256, (ctx, w, h) => {
@@ -1030,9 +1049,22 @@ function updateMenuScene(dt, t) {
   const intro = Math.min(1, t / 6);
   menuCamera.fov = 47 - intro * 1.4;
   menuCamera.updateProjectionMatrix();
+  // Dog choreography: guard stance, listening, sniffing, the occasional bark.
+  const dogCycle = (t + 6) % 22;
+  const dogSniffing = dogCycle > 13 && dogCycle < 16.5 ? 1 : 0;
+  const dogAlert = (dogCycle > 6 && dogCycle < 9.2) || (dogCycle > 19 && dogCycle < 20.2) ? 1 : 0;
+  menuDogPose.x = lerp(menuDogPose.x, 0.04, 1 - Math.exp(-dt * 2));
+  menuDogPose.rot = lerpAngle(menuDogPose.rot, -0.52, 1 - Math.exp(-dt * 2.5));
+  menuDog.position.x = menuDogPose.x + Math.sin(t * .6) * .025;
   menuDog.userData.targetLook = menuPointerX || (Math.sin(t * .23) * .12);
-  menuDog.userData.update(dt, t, { baseY: .3, audioBark: !document.hidden && t > 8 });
-  menuDog.rotation.y = -.52 + Math.sin(t * .35) * .055;
+  menuDog.userData.update(dt, t, {
+    baseY: .3,
+    audioBark: !document.hidden && t > 8,
+    gait: 0,
+    sniff: dogSniffing,
+    alert: dogAlert
+  });
+  menuDog.rotation.y = menuDogPose.rot + Math.sin(t * .35) * .045;
   menuActors.forEach((a, i) => {
     if (a.userData && a.userData.arms) {
       const z = a;
@@ -1102,8 +1134,9 @@ function createDrone(scale = 1) {
 
 /* ───────────────────────────── GAME WORLD ───────────────────────────── */
 let gameScene, gameCamera, gameTarget, gameCameraBase, tableGroup, dynamicGroup, ballsLayer, effectsGroup;
-let gameDog, gameDogGlow, gameFlippers = [], gameDrones = [];
-const GAME_DOG_YAW = Math.PI + 0.12; // side-on to the player camera: readable dachshund silhouette
+let gameDog, gameDogGlow, gameFlippers = [], gameDrones = [], gameBeacons = [];
+const GAME_DOG_YAW = Math.PI + 0.45; // three-quarter view toward the player: readable dachshund face
+const GAME_DOG_HOME = { x: 0, y: .18, z: 6.86 };
 let particles, ashGame;
 let cameraShake = 0;
 let sectorSign;
@@ -1140,9 +1173,9 @@ TEX.env = makeEnvTexture();
 function makePlayfieldTexture() {
   return canvasTexture(900, 1600, (ctx, w, h) => {
     const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#1b261f'); bg.addColorStop(.5, '#141d17'); bg.addColorStop(1, '#0e1712');
+    bg.addColorStop(0, '#26352b'); bg.addColorStop(.5, '#1c2a20'); bg.addColorStop(1, '#14231a');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-    ctx.globalAlpha = .16; ctx.strokeStyle = '#87a283'; ctx.lineWidth = 1;
+    ctx.globalAlpha = .2; ctx.strokeStyle = '#a8c4a2'; ctx.lineWidth = 1;
     for (let x = 0; x <= w; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
     for (let y = 0; y <= h; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
     ctx.globalAlpha = 1;
@@ -1162,7 +1195,10 @@ function makePlayfieldTexture() {
     ctx.beginPath(); ctx.moveTo(w*.77, h*.23); ctx.lineTo(w*.64, h*.46); ctx.lineTo(w*.69, h*.62); ctx.stroke();
     // Stencils.
     ctx.save(); ctx.translate(60, 112); ctx.rotate(-Math.PI/2); ctx.font='900 38px Arial'; ctx.fillStyle='rgba(213,231,204,.13)'; ctx.fillText('K9 CONTAINMENT GRID // BANDOS7', 0, 0); ctx.restore();
-    ctx.font='900 76px Impact, Arial Black'; ctx.fillStyle='rgba(215,235,204,.075)'; ctx.fillText('WUMMI', 112, h*.83); ctx.font='700 22px Arial'; ctx.fillStyle='rgba(166,255,50,.13)'; ctx.fillText('DACHSHUND DIVISION // AREA 07', 112, h*.865);
+    ctx.font='900 76px Impact, Arial Black'; ctx.fillStyle='rgba(215,235,204,.075)';
+    ctx.textAlign='center'; ctx.fillText('WUMMI', w*.52, h*.845);
+    ctx.font='700 22px Arial'; ctx.fillStyle='rgba(166,255,50,.13)';
+    ctx.fillText('DACHSHUND DIVISION // AREA 07', w*.52, h*.875);
     // Scratches & contamination.
     for (let i = 0; i < 55; i++) {
       ctx.strokeStyle = `rgba(${rand(100,190)},${rand(120,200)},${rand(95,150)},${rand(.02,.12)})`;
@@ -1209,17 +1245,17 @@ function buildGameScene() {
   gameCameraBase = new THREE.Vector3(0, 18, 10);
   gameCamera.position.copy(gameCameraBase); gameCamera.lookAt(gameTarget);
 
-  const hemi = new THREE.HemisphereLight(0x496b51, 0x020303, 1.8); gameScene.add(hemi);
-  const key = new THREE.DirectionalLight(0xe0ffc9, 2.7);
+  const hemi = new THREE.HemisphereLight(0x496b51, 0x020303, 2.15); gameScene.add(hemi);
+  const key = new THREE.DirectionalLight(0xe0ffc9, 3.05);
   key.position.set(-6, 15, 8); key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
   key.shadow.camera.left = -7; key.shadow.camera.right = 7; key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
   key.shadow.bias = -.0005; gameScene.add(key);
-  const under = new THREE.PointLight(0x6eff34, 15, 18, 1.7); under.position.set(-4.4, 2.4, 2.3); gameScene.add(under);
-  const red = new THREE.PointLight(0xff2538, 10, 14, 1.8); red.position.set(4.3, 1.8, -4.3); gameScene.add(red);
-  const cyan = new THREE.PointLight(0x2acbff, 7, 12, 1.8); cyan.position.set(4.4, 2.2, 4); gameScene.add(cyan);
-  stageLight = new THREE.PointLight(0x9dff32, 4.5, 11, 1.8); stageLight.position.set(0, 3.2, .8); gameScene.add(stageLight);
-  const fill = new THREE.PointLight(0xc9f0c7, 11, 24, 1.4); fill.position.set(0, 7.5, -1.2); gameScene.add(fill);
-  const dogLight = new THREE.PointLight(0xffd7a0, 11, 4.8, 1.35); dogLight.position.set(0, 1.7, 7.05); gameScene.add(dogLight);
+  const under = new THREE.PointLight(0x6eff34, 18, 18, 1.7); under.position.set(-4.4, 2.4, 2.3); gameScene.add(under);
+  const red = new THREE.PointLight(0xff2538, 12, 14, 1.8); red.position.set(4.3, 1.8, -4.3); gameScene.add(red);
+  const cyan = new THREE.PointLight(0x2acbff, 8, 12, 1.8); cyan.position.set(4.4, 2.2, 4); gameScene.add(cyan);
+  stageLight = new THREE.PointLight(0x9dff32, 6.5, 12, 1.8); stageLight.position.set(0, 3.2, .8); gameScene.add(stageLight);
+  const fill = new THREE.PointLight(0xc9f0c7, 14, 24, 1.4); fill.position.set(0, 7.5, -1.2); gameScene.add(fill);
+  const dogLight = new THREE.PointLight(0xffd7a0, 12, 4.8, 1.35); dogLight.position.set(0, 1.7, 7.05); gameScene.add(dogLight);
 
   // Bunker floor around the table.
   const floorTex = makeMenuFloorTexture(); floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(2.4,2.4);
@@ -1236,7 +1272,7 @@ function buildGameScene() {
   const apron = new THREE.Mesh(new THREE.BoxGeometry(8.05, .28, 1.25), new THREE.MeshStandardMaterial({ color: 0x1c241d, roughness: .46, metalness: .5 }));
   apron.position.set(0, -.03, 6.5); tableGroup.add(apron);
   const pfTex = makePlayfieldTexture();
-  const playfield = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 13.1), new THREE.MeshStandardMaterial({ map: pfTex, color: 0x9aab9b, roughness: .52, metalness: .45 }));
+  const playfield = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 13.1), new THREE.MeshStandardMaterial({ map: pfTex, color: 0xb9c9b3, roughness: .46, metalness: .4, emissive: 0x2c3b2c, emissiveMap: pfTex, emissiveIntensity: .3 }));
   playfield.rotation.x = -Math.PI/2; playfield.position.set(0, .005, -.5); playfield.receiveShadow = true; tableGroup.add(playfield);
   // Glossy protective layer sheen.
   const sheen = new THREE.Mesh(new THREE.PlaneGeometry(7.18, 13.08), new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: .035, roughness: .16, metalness: .1, depthWrite: false }));
@@ -1265,6 +1301,24 @@ function buildGameScene() {
   const laneGlow = new THREE.Mesh(new THREE.BoxGeometry(.06, .025, 11.2), new THREE.MeshBasicMaterial({ color: 0x64dfff }));
   laneGlow.position.set(2.74, .05, -.1); tableGroup.add(laneGlow);
 
+  // Faint shot-direction chevrons printed into the playfield.
+  const arrowMat = new THREE.MeshBasicMaterial({ color: 0xa6ff32, transparent: true, opacity: .26, depthWrite: false, side: THREE.DoubleSide });
+  for (const [ax, az, rot, sc] of [[-1.25, 1.3, .16, 1], [1.25, 1.3, -.16, 1], [-1.25, .35, .16, .78], [1.25, .35, -.16, .78]]) {
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(.19, .48, 3), arrowMat);
+    arrow.rotation.x = -Math.PI / 2; arrow.rotation.z = rot;
+    arrow.position.set(ax, .035, az); arrow.scale.setScalar(sc);
+    tableGroup.add(arrow);
+  }
+  // Emergency beacons on the back corners.
+  for (const s of [-1, 1]) {
+    const beaconBase = new THREE.Mesh(new THREE.CylinderGeometry(.1, .14, .18, 10), new THREE.MeshStandardMaterial({ color: 0x221414, roughness: .5, metalness: .55 }));
+    beaconBase.position.set(s * 3.62, .4, -7.02); tableGroup.add(beaconBase);
+    const beaconLamp = new THREE.Mesh(new THREE.SphereGeometry(.13, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2c38 }));
+    beaconLamp.position.set(s * 3.62, .56, -7.02); beaconLamp.userData.beacon = 1; tableGroup.add(beaconLamp);
+    const beaconGlow = glowSprite(0xff2a36, 1.35, .55); beaconGlow.position.copy(beaconLamp.position); beaconGlow.userData.beaconGlow = 1; tableGroup.add(beaconGlow);
+    gameBeacons.push({ lamp: beaconLamp, glow: beaconGlow, phase: s > 0 ? 0 : Math.PI });
+  }
+
   // Side lamps.
   for (let i = 0; i < 9; i++) {
     const z = -6.4 + i * 1.42;
@@ -1291,8 +1345,8 @@ function buildGameScene() {
   const backStrip = new THREE.Mesh(new THREE.BoxGeometry(7.4, .05, .05), new THREE.MeshBasicMaterial({ color: 0x9dff32 }));
   backStrip.position.set(0, 2.6, -7.1); tableGroup.add(backStrip);
   sectorSign = makeTextSprite('SEKTOR 01', 0xffc24c, 'rgba(13,9,2,.94)', 760, 92, 48);
-  sectorSign.position.set(0, 2.95, -7.15); sectorSign.scale.set(4.2,.52,.01); tableGroup.add(sectorSign);
-  sectorSign.userData.baseScale = 4.2;
+  sectorSign.position.set(0, 2.95, -7.15); sectorSign.scale.set(4.7,.58,.01); tableGroup.add(sectorSign);
+  sectorSign.userData.baseScale = 4.7;
   gameScene.userData.sectorSign = sectorSign;
 
   // Flipper rigs.
@@ -1302,17 +1356,16 @@ function buildGameScene() {
   // Apron dachshund: a detailed companion who reacts to the carnage.
   const kennel = new THREE.Group();
   const pad = new THREE.Mesh(new THREE.CylinderGeometry(.92,.98,.18,28), new THREE.MeshStandardMaterial({ color: 0x1e261f, roughness: .4, metalness: .55 }));
-  pad.position.set(0,.08,7.18); pad.receiveShadow = true; kennel.add(pad);
-  const padRing = new THREE.Mesh(new THREE.TorusGeometry(.88,.035,6,32), new THREE.MeshBasicMaterial({ color: 0x9dff32 })); padRing.rotation.x=Math.PI/2; padRing.position.set(0,.19,7.18); kennel.add(padRing);
+  pad.position.set(GAME_DOG_HOME.x,.08,GAME_DOG_HOME.z); pad.receiveShadow = true; kennel.add(pad);
+  const padRing = new THREE.Mesh(new THREE.TorusGeometry(.88,.035,6,32), new THREE.MeshBasicMaterial({ color: 0x9dff32 })); padRing.rotation.x=Math.PI/2; padRing.position.set(GAME_DOG_HOME.x,.19,GAME_DOG_HOME.z); kennel.add(padRing);
   const k9signTex = canvasTexture(128,64,(ctx,w,h)=>{ctx.fillStyle='#090d08';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#b9e93b';ctx.strokeRect(4,4,w-8,h-8);ctx.font='900 30px Arial Black, Arial';ctx.fillStyle='#d8ff91';ctx.textAlign='center';ctx.fillText('K9',w/2,h/2+10);});
   const k9sign = new THREE.Mesh(new THREE.PlaneGeometry(.58,.29), new THREE.MeshBasicMaterial({ map:k9signTex }));
-  k9sign.position.set(0,.48,7.72); k9sign.rotation.y = Math.PI; tableGroup.add(k9sign); // face replaced below
-  k9sign.rotation.y = 0;
-  gameDog = createDachshund({ scale: .82 });
-  gameDog.position.set(0,.18,7.18); gameDog.rotation.y = GAME_DOG_YAW;
+  k9sign.position.set(-1.7,.43,6.98); k9sign.rotation.y = 0; tableGroup.add(k9sign);
+  gameDog = createDachshund({ scale: .95 });
+  gameDog.position.set(GAME_DOG_HOME.x,GAME_DOG_HOME.y,GAME_DOG_HOME.z); gameDog.rotation.y = GAME_DOG_YAW;
   gameDog.traverse(o => { if(o.isMesh) o.castShadow = true; });
   kennel.add(gameDog);
-  const dogGlow = glowSprite(0x8fff32, 1.9, .12); dogGlow.position.set(0,.38,7.18); kennel.add(dogGlow);
+  const dogGlow = glowSprite(0x8fff32, 1.9, .12); dogGlow.position.set(GAME_DOG_HOME.x,.38,GAME_DOG_HOME.z); kennel.add(dogGlow);
   tableGroup.add(kennel);
   gameDogGlow = dogGlow;
 
@@ -1379,8 +1432,8 @@ function fitGameCamera() {
   const points = [
     new THREE.Vector3(-4.35, 0, -7.4), new THREE.Vector3(4.35, 0, -7.4),
     new THREE.Vector3(-4.35, 0, 6.2), new THREE.Vector3(4.35, 0, 6.2),
-    new THREE.Vector3(-1.25, .4, 8.45), new THREE.Vector3(1.25, .4, 8.45),
-    new THREE.Vector3(0, 1.55, 8.4), new THREE.Vector3(0, .2, 8.55),
+    new THREE.Vector3(-1.45, .4, 7.95), new THREE.Vector3(1.45, .4, 7.95),
+    new THREE.Vector3(0, 1.6, 7.9), new THREE.Vector3(0, .2, 8.0),
     new THREE.Vector3(0, 3.0, -7.35), new THREE.Vector3(-4.0, 1.0, -7.35), new THREE.Vector3(4.0, 1.0, -7.35)
   ];
   let lo = 4, hi = 46;
@@ -1754,10 +1807,17 @@ function clearBalls() {
 
 function createBall(x, z, held = false) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xe7eee4, metalness: .86, roughness: .16, emissive: 0x1e2b1d, emissiveIntensity: .35 });
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(GAME_CONST.ballR, 20, 14), mat);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xf4ffe9, metalness: .92, roughness: .1, emissive: 0x3c641c, emissiveIntensity: .55 });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(GAME_CONST.ballR, 22, 16), mat);
   group.add(sphere);
-  const glow = glowSprite(0xb6ff55, .72, .22); glow.position.z = 0; group.add(glow);
+  const glow = glowSprite(0xb6ff55, .95, .4); glow.position.z = 0; group.add(glow);
+  const halo = glowSprite(0xd9ff9c, 1.55, .11); group.add(halo);
+  const marker = new THREE.Mesh(
+    new THREE.RingGeometry(.3, .43, 26),
+    new THREE.MeshBasicMaterial({ color: 0xa6ff32, transparent: true, opacity: .4, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  marker.rotation.x = -Math.PI / 2; marker.position.y = -.215; group.add(marker);
+  const light = new THREE.PointLight(0xa6ff32, 1.35, 3.1, 2); light.position.y = .12; group.add(light);
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(.32, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .42, depthWrite: false }));
   shadow.rotation.x = -Math.PI/2; shadow.position.y = -.223; group.add(shadow);
   group.position.set(x, GAME_CONST.ballR + .02, z);
@@ -1765,12 +1825,12 @@ function createBall(x, z, held = false) {
   const trail = [];
   for (let i = 0; i < 11; i++) {
     const sm = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0x9dff32, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
-    sm.scale.set(.34 - i*.012, .34 - i*.012, 1);
+    sm.scale.set(.38 - i*.012, .38 - i*.012, 1);
     sm.position.set(x, .3, z);
     ballsLayer.add(sm); trail.push(sm);
   }
   const ball = {
-    x, z, vx: 0, vz: 0, held, active: true, mesh: group, sphere, glow, shadow, trail,
+    x, z, vx: 0, vz: 0, held, active: true, mesh: group, sphere, glow, halo, marker, light, shadow, trail,
     spin: new THREE.Vector3(rand(-1,1), rand(-1,1), rand(-1,1)),
     stuckTime: 0, lastTrail: 1, launchReady: held
   };
@@ -2261,7 +2321,7 @@ function updateK9(dt, t) {
     const arc = Math.sin(p * Math.PI);
     const travel = Math.sin(p * Math.PI); // out and back, smooth
     gameDog.position.x = Math.sin(p * Math.PI * 2.1) * 1.35;
-    gameDog.position.z = 7.18 - travel * 5.25;
+    gameDog.position.z = GAME_DOG_HOME.z - travel * 5.25;
     gameDog.position.y = .18 + arc * .65;
     gameDog.rotation.y = GAME_DOG_YAW + Math.sin(p * Math.PI * 2) * .5;
     gameDog.userData.excited = 1.4;
@@ -2270,9 +2330,10 @@ function updateK9(dt, t) {
     gameDogGlow.scale.setScalar(1.9 + arc * 1.4);
     if (!run.k9Hit && p > .48) { run.k9Hit = true; k9Impact(); }
     if (run.k9Fx <= 0) {
-      gameDog.position.set(0, .18, 7.18);
+      run.k9Fx = 0;
+      gameDog.position.set(GAME_DOG_HOME.x, GAME_DOG_HOME.y, GAME_DOG_HOME.z);
       gameDog.rotation.y = GAME_DOG_YAW;
-      gameDogGlow.position.set(0, .38, 7.18);
+      gameDogGlow.position.set(GAME_DOG_HOME.x, .38, GAME_DOG_HOME.z);
       gameDogGlow.material.opacity = .12;
       gameDogGlow.scale.setScalar(1.9);
       updateHUD(true);
@@ -2386,11 +2447,14 @@ function updateGameWorldVisuals(dt, t) {
   // Dachshund on the apron.
   const baseY = run && run.k9Fx > 0 ? gameDog.position.y : .18;
   if (gameDog) {
-    gameDog.userData.update(dt, t, { baseY, audioBark: false });
+    const watchBall = balls.find(b => b.active && !b.held) || balls[0] || null;
+    gameDog.userData.targetLook = watchBall ? clamp((watchBall.x - GAME_DOG_HOME.x) * .42, -.85, .85) : Math.sin(t * .37) * .18;
+    if (watchBall && watchBall.z > 4.6 && !(run && run.k9Fx > 0)) gameDog.userData.excited = Math.max(gameDog.userData.excited, .35);
+    gameDog.userData.update(dt, t, { baseY, audioBark: false, neckUp: .58 });
     if (!(run && run.k9Fx > 0)) {
-      gameDog.position.x = 0; gameDog.position.z = 7.18; gameDog.position.y = .18;
+      gameDog.position.x = GAME_DOG_HOME.x; gameDog.position.z = GAME_DOG_HOME.z; gameDog.position.y = GAME_DOG_HOME.y;
       gameDog.rotation.y = GAME_DOG_YAW + Math.sin(t * .4) * .05;
-      gameDogGlow.position.set(0,.38,7.18);
+      gameDogGlow.position.set(GAME_DOG_HOME.x,.38,GAME_DOG_HOME.z);
     }
     gameDogGlow.material.opacity = .1 + Math.sin(t * 2.6) * .04 + (run?.k9Fx > 0 ? .2 : 0);
     gameDogGlow.scale.setScalar(1.85 + Math.sin(t * 2.6) * .12);
@@ -2404,9 +2468,19 @@ function updateGameWorldVisuals(dt, t) {
     b.sphere.rotation.x += b.vz * dt * 1.3;
     b.sphere.rotation.z -= b.vx * dt * 1.3;
     const pulse = 1 + Math.sin(t * 5 + b.x) * .08;
-    b.glow.scale.setScalar((flame ? .9 : .68) * pulse);
+    b.glow.scale.setScalar((flame ? 1.15 : .98) * pulse);
     b.glow.material.color.setHex(ballColor);
-    const trailAlpha = b.held ? 0 : .22;
+    b.halo.scale.setScalar((flame ? 1.85 : 1.55) * (1 + Math.sin(t * 3.2 + b.z) * .05));
+    b.halo.material.color.setHex(ballColor);
+    b.halo.material.opacity = b.held ? .08 : .1 + Math.sin(t * 3.4) * .025;
+    b.marker.visible = !b.held;
+    b.marker.material.color.setHex(ballColor);
+    b.marker.material.opacity = .28 + Math.sin(t * 6 + b.x) * .12;
+    b.marker.scale.setScalar(1 + Math.sin(t * 4.5) * .14);
+    b.light.color.setHex(ballColor);
+    b.light.intensity = (flame ? 2.2 : 1.35) + Math.sin(t * 5) * .2;
+    b.sphere.material.emissive.setHex(flame ? 0x8a2a00 : 0x3c641c);
+    const trailAlpha = b.held ? 0 : .27;
     for (let i = b.trail.length - 1; i > 0; i--) {
       b.trail[i].position.copy(b.trail[i-1].position);
       b.trail[i].material.opacity *= .74;
@@ -2430,6 +2504,14 @@ function updateGameWorldVisuals(dt, t) {
   // Sign bob.
   const sign = gameScene.userData.sectorSign;
   if (sign) sign.position.y = 2.95 + Math.sin(t * 1.4) * .025;
+  // Rotating hazard beacons.
+  gameBeacons.forEach((b, i) => {
+    const pulse = .5 + .5 * Math.sin(t * 3.4 + b.phase);
+    b.glow.material.opacity = .22 + pulse * .6;
+    b.glow.scale.setScalar(1.3 + pulse * .4);
+    b.lamp.material.color.setRGB(.55 + pulse * .45, .05, .09);
+    b.lamp.scale.setScalar(.9 + pulse * .2);
+  });
   if (particles) particles.userData.update(dt);
   updateEffects(dt);
   cameraShake = Math.max(0, cameraShake - dt * 2.6);
@@ -2511,7 +2593,7 @@ function startRun() {
   };
   lastHud = {};
   clearBalls();
-  if (gameDog) { gameDog.position.set(0,.18,7.18); gameDog.rotation.y=GAME_DOG_YAW; }
+  if (gameDog) { gameDog.position.set(GAME_DOG_HOME.x,GAME_DOG_HOME.y,GAME_DOG_HOME.z); gameDog.rotation.y=GAME_DOG_YAW; }
   simTime = 0;
   // Clear transient effects from a previous run.
   effects.length = 0;
@@ -2536,10 +2618,14 @@ function finishRun() {
     date: new Date().toISOString().slice(0, 10)
   };
   run.entry = entry;
-  ranking.push(entry);
-  persistRanking();
-  run.rank = ranking.findIndex(r => r.id === entry.id);
-  run.newRecord = run.rank >= 0 && run.rank < 10 && run.score > 0;
+  if (run.score > 0) {
+    ranking.push(entry);
+    persistRanking();
+    run.rank = ranking.findIndex(r => r.id === entry.id);
+  } else {
+    run.rank = -1;
+  }
+  run.newRecord = run.rank === 0 && run.score > 0;
   setTimeout(() => { if (state === 'gameover') showGameOverModal(); }, 500);
 }
 function showStage(s) {
@@ -2632,7 +2718,7 @@ function showBriefing() {
     <h2 class="modal-title">BRIEFING</h2>
     <p class="modal-sub">Du steuerst K9-WUMMI, den letzten taktischen Dackel der Division. Halte die Brutkapseln unter Feuer, hol Verstärkung und überlebe so viele Sektoren wie möglich.</p>
     <div class="brief-list">
-      <div class="brief-item"><div class="bi-icon">◀▶</div><div><b>Ein Finger, zwei Flügel</b><p>Tippe links oder rechts unten, um den jeweiligen Flipper zu schlagen. Halten hält den Flügel oben. Tippe ABSCHUSS, um den Ball in den Sektor zu feuern.</p></div></div>
+      <div class="brief-item"><div class="bi-icon">◀▶</div><div><b>Ein Finger, zwei Flügel</b><p>Tippe links oder rechts auf das Spielfeld, um den jeweiligen Flipper zu schlagen – oder nutze die beiden Flügel-Tasten unten. Halten hält den Flügel oben. Beim Abschuss genügt ein Tipp auf das Feld.</p></div></div>
       <div class="brief-item"><div class="bi-icon">◎</div><div><b>Brutkapseln zerstören</b><p>Jeder Sektor ist gesichert, wenn alle grünen Brutkapseln zerbrochen sind. Triff sie mehrfach, weiche Zombies aus und nutze Slingshots für Tempo.</p></div></div>
       <div class="brief-item"><div class="bi-icon">K9</div><div><b>K9-Wut</b><p>Treffer füllen die Wut-Leiste. Bei 100 % springt WUMMI persönlich auf das Feld und walzt die Horde nieder.</p></div></div>
       <div class="brief-item"><div class="bi-icon">▣</div><div><b>Power-ups</b><p>Zerbrochene Kapseln lassen Beute fallen: RUDEL (Multiball), SCHILD (Drain-Schutz), OVERDRIVE, ZEITLUPE, BRANDKUGEL, MAGNET und EMP.</p></div></div>
@@ -2686,13 +2772,13 @@ function resumeGame() {
 function showGameOverModal() {
   if (!run) return;
   const pos = run.rank;
-  const row = pos >= 0 ? `PLATZ #${pos + 1}` : 'NICHT IN DEN TOP 10';
+  const row = pos === 0 ? 'PLATZ #1' : pos > 0 ? `PLATZ #${pos + 1}` : 'NICHT IN DEN TOP 10';
   const html = `
     <div class="modal-kicker">SIGNALVERLUST // K9 OFFLINE</div>
     <h2 class="modal-title">EINSATZ<br>BEENDET</h2>
     <div class="gameover-score">${fmt(run.score)}</div>
     ${run.newRecord ? '<div class="new-record">NEUER K9-REKORD</div>' : ''}
-    <p class="modal-sub">${run.newRecord ? 'Der Bunker hat einen neuen Helden. Trage deinen Operator-Namen in die Rangliste ein.' : `Du stehst auf ${row}. Mehr Kapseln, mehr Krawall.`}</p>
+    <p class="modal-sub">${run.score <= 0 ? 'Kein Punkte-Eintrag. Starte einen neuen Einsatz und zeig der Horde, wer hier das Sagen hat.' : run.newRecord ? 'Der Bunker hat einen neuen Helden. Trage deinen Operator-Namen in die Rangliste ein.' : `Du stehst auf ${row}. Mehr Kapseln, mehr Krawall.`}</p>
     <div class="name-row">
       <input class="name-input" id="rankName" maxlength="10" autocomplete="off" spellcheck="false" placeholder="OPERATOR" value="${escapeHtml((settings.name || 'WUMMI').toUpperCase())}">
       <button class="btn-primary" id="saveName">EINTRAGEN</button>
@@ -2797,6 +2883,40 @@ function setupButtonHold(btn, side) {
 }
 setupButtonHold(leftBtn, -1);
 setupButtonHold(rightBtn, 1);
+
+// One-finger playfield controls: tap/hold either half of the visible table.
+$$('.field-zone').forEach(zone => {
+  const side = Number(zone.dataset.side);
+  let pointerId = null;
+  let flipped = false;
+  const down = (e) => {
+    if (state !== 'game') return;
+    e.preventDefault();
+    audio.init();
+    pointerId = e.pointerId;
+    zone.classList.add('active');
+    try { zone.setPointerCapture(pointerId); } catch (_) {}
+    const held = run && run.stageClearTimer <= 0 && balls.some(b => b.held && b.active);
+    if (held) {
+      launchBall();
+    } else {
+      pressFlipper(side, true);
+      flipped = true;
+    }
+  };
+  const up = (e) => {
+    if (pointerId != null && e.pointerId !== pointerId) return;
+    pointerId = null;
+    zone.classList.remove('active');
+    if (flipped) pressFlipper(side, false);
+    flipped = false;
+  };
+  zone.addEventListener('pointerdown', down);
+  zone.addEventListener('pointerup', up);
+  zone.addEventListener('pointercancel', up);
+  zone.addEventListener('lostpointercapture', up);
+  zone.addEventListener('contextmenu', e => e.preventDefault());
+});
 
 launchBtn.addEventListener('pointerdown', (e) => {
   e.preventDefault(); audio.init();
@@ -2955,6 +3075,7 @@ window.WUMMI = {
   snapshot: () => run ? {
     state, stage: run.stage, score: run.score, launched: run.launched, podDone: run.podDone,
     podTotal: run.podTotal, stageClearTimer: run.stageClearTimer, k9Fx: run.k9Fx,
+    pods: stage ? stage.pods.map(p => ({ hp: p.hp, alive: p.alive })) : [],
     stats: { ...run.stats },
     balls: balls.map(b => ({ x:+b.x.toFixed(2), z:+b.z.toFixed(2), vx:+b.vx.toFixed(2), vz:+b.vz.toFixed(2), held:b.held, active:b.active }))
   } : null

@@ -55,9 +55,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 #app {
   position: relative;
   width: 100vw;
-  height: 100dvh;
+  height: 100vh;
+  width: min(100vw, calc(100dvh * 0.5625));
+  height: min(100dvh, calc(100vw * 1.7777778));
   max-width: calc(100dvh * 0.5625);
   max-height: 100dvh;
+  aspect-ratio: 9 / 16;
   overflow: hidden;
   isolation: isolate;
   container-type: inline-size;
@@ -224,6 +227,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   -webkit-text-fill-color: var(--acid);
   text-shadow: 0 0 .7rem rgba(166,255,50,.5), 0 .25rem 0 #000;
   transform: skewY(2deg);
+  animation: sign-flicker 8.5s steps(1, end) infinite;
+}
+@keyframes sign-flicker {
+  0%, 91%, 96%, 100% { opacity: 1; }
+  92% { opacity: .58; }
+  93% { opacity: 1; }
+  94% { opacity: .7; }
+  95% { opacity: .95; }
 }
 .logo .sub em {
   font-style: normal;
@@ -552,6 +563,40 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   position:absolute; inset:0; z-index:2; pointer-events:none;
   box-shadow: inset 0 0 4rem rgba(0,0,0,.55);
 }
+/* Invisible one-finger tap zones: the whole playfield doubles as a flipper control. */
+.field-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  pointer-events: none;
+}
+.field-zone {
+  position: relative;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  background: transparent;
+}
+.field-zone::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24%;
+  opacity: 0;
+  transition: opacity .12s;
+  background: radial-gradient(ellipse at 50% 120%, rgba(166,255,50,.18), transparent 68%);
+}
+.field-zone.active::after { opacity: 1; }
+.field-zone[data-side="-1"]::after { background: radial-gradient(ellipse at 38% 120%, rgba(166,255,50,.19), transparent 66%); }
+.field-zone[data-side="1"]::after { background: radial-gradient(ellipse at 62% 120%, rgba(255,179,43,.17), transparent 66%); }
+@media (prefers-reduced-motion: reduce) {
+  .field-zone::after { transition: none; }
+}
 .controls {
   position: relative;
   z-index: 3;
@@ -641,7 +686,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .launch-btn[disabled] { opacity: .45; border-color: rgba(176,198,171,.15); color: rgba(219,226,205,.45); background: rgba(0,0,0,.38); }
 .launch-btn.ready { animation: launch-pulse 1.4s ease-in-out infinite; }
 @keyframes launch-pulse { 0%,100% { box-shadow: inset 0 0 0 rgba(255,179,43,0); border-color: rgba(255,179,43,.38); } 50% { box-shadow: inset 0 0 1.8rem rgba(255,179,43,.12), 0 0 .8rem rgba(255,179,43,.1); border-color: rgba(255,196,91,.8); } }
-.control-hint { text-align:center; font-size:.57rem; letter-spacing:.12em; color:rgba(142,161,145,.46); text-transform:uppercase; }
+.control-hint { text-align:center; font-size:.72rem; letter-spacing:.1em; color:rgba(152,172,155,.62); text-transform:uppercase; }
 
 /* ───────────────────────────── MODALS ───────────────────────────── */
 .modal-layer {
@@ -773,5 +818,5 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .flip-btn .key { font-size: 2.1rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .menu-fade, .launch-btn.ready, .eyebrow::before { animation: none !important; }
+  .menu-fade, .launch-btn.ready, .eyebrow::before, .logo .sub { animation: none !important; }
 }
