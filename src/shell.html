@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#030607">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23070d08'/%3E%3Cpath d='M12 16h8l5 22 5-14h4l5 14 5-22h8L43 50h-7l-4-11-4 11h-7z' fill='%23a6ff32'/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="WUMMI – Zombie Pinball Protocol. Ein düsteres 3D-Flipperspiel mit dem taktischen Dackel K9-WUMMI. Entwickelt von BANDOS7. Made in Germany.">
+<title>WUMMI – Zombie Pinball Protocol</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<main id="app">
+  <canvas id="gl" aria-label="3D Spielansicht"></canvas>
+
+  <section id="menuScreen" class="screen menu-screen active" aria-label="Hauptmenü">
+    <div id="menuStage" class="stage-holder menu-stage"></div>
+    <div class="scanlines"></div>
+    <div class="menu-ui">
+      <header class="topbar menu-fade">
+        <div class="brand">BANDOS7 <small>// K9 DIVISION</small></div>
+        <div class="topbar-actions">
+          <button id="menuSoundBtn" class="icon-btn" aria-label="Sound an oder aus" title="Sound">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z"/><path class="sound-wave" d="M16 8.2c1.2 1 1.9 2.2 1.9 3.8s-.7 2.8-1.9 3.8M18.7 5.4c2 1.8 3.2 4 3.2 6.6s-1.2 4.8-3.2 6.6"/>
+              <path class="muted-mark" d="M17 9l5 6M22 9l-5 6" stroke="#ff545f"/>
+            </svg>
+          </button>
+          <button id="menuBriefBtn" class="icon-btn" aria-label="Briefing öffnen" title="Briefing">?</button>
+        </div>
+      </header>
+
+      <div class="hero menu-fade">
+        <div class="eyebrow">PROTOKOLL 1.1.1 // DÜSTERMODUS</div>
+        <h1 class="logo" aria-label="Wummi Zombie Pinball Protocol">
+          <span class="main">WUMMI</span>
+          <span class="sub">ZOMBIE <em>PINBALL</em></span>
+        </h1>
+        <p class="tagline">Ein Dackel. Ein Flipper.<br><strong>Null Gnade.</strong></p>
+      </div>
+
+      <div class="menu-panel menu-fade">
+        <div class="panel-label"><span>Einsatzstufe</span><b id="difficultyReadout">VETERAN</b></div>
+        <div class="segmented" id="difficultySeg" role="group" aria-label="Schwierigkeitsgrad">
+          <button class="diff-btn" data-diff="recruit" type="button"><strong>REKRUT</strong><span>5 Bälle · ruhig</span></button>
+          <button class="diff-btn selected" data-diff="veteran" type="button"><strong>VETERAN</strong><span>3 Bälle · normal</span></button>
+          <button class="diff-btn" data-diff="nightmare" type="button"><strong>ALBTRAUM</strong><span>2 Bälle · brutal</span></button>
+        </div>
+        <button id="startBtn" class="cta" type="button">
+          <span>EINSATZ STARTEN<small>TASTE FÜR EINEN FINGER</small></span>
+          <span class="arrow">›</span>
+        </button>
+        <div class="menu-row">
+          <button id="rankingBtn" class="ghost" type="button"><span class="glyph">▦</span> RANGLISTE</button>
+          <button id="briefingBtn" class="ghost" type="button"><span class="glyph">i</span> BRIEFING</button>
+        </div>
+        <div class="best-line"><span>LOKALER BESTWERT</span><strong id="bestScore">000.000</strong></div>
+        <div class="credits">ENTWICKELT VON <b>BANDOS7</b> · MADE IN GERMANY<br>VERSION 1.1.1 · K9-WUMMI IST BEREIT</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gameScreen" class="screen game-screen" aria-label="Spiel">
+    <header class="game-hud">
+      <div class="hud-top">
+        <div class="score-box">
+          <div class="hud-label">Punkte</div>
+          <div class="score-val" id="scoreVal">0</div>
+        </div>
+        <div class="sector-box">
+          <div class="sector-num" id="sectorVal">SEKTOR 01</div>
+          <div class="sector-name" id="sectorName">BLUTWEG</div>
+        </div>
+        <div class="status-box">
+          <div class="balls-box">
+            <span class="hud-label">BÄLLE</span>
+            <div class="ball-pips" id="ballPips"></div>
+          </div>
+          <button id="pauseBtn" class="hud-icon" aria-label="Pause" title="Pause">Ⅱ</button>
+          <button id="gameSoundBtn" class="hud-icon" aria-label="Sound an oder aus" title="Sound">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z"/><path class="sound-wave" d="M16 8.2c1.2 1 1.9 2.2 1.9 3.8s-.7 2.8-1.9 3.8M18.7 5.4c2 1.8 3.2 4 3.2 6.6s-1.2 4.8-3.2 6.6"/>
+              <path class="muted-mark" d="M17 9l5 6M22 9l-5 6" stroke="#ff545f"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="hud-bottom">
+        <div class="combo-pill" id="comboPill"><b>×1</b> KETTE</div>
+        <div class="objective" id="objective">ZERSTÖRE <b>3 BRUTKAPSELN</b></div>
+        <div class="power-chips" id="powerChips"></div>
+      </div>
+      <div class="event-line" id="eventLine"></div>
+    </header>
+
+    <div class="game-stage" id="gameStage">
+      <div class="scanlines"></div>
+    </div>
+
+    <footer class="controls" aria-label="Flippersteuerung">
+      <button id="leftBtn" class="flip-btn" type="button" aria-label="Linker Flipper">
+        <span class="key">◀</span>
+        <span class="lbl">LINKS</span>
+        <span class="hint">FLÜGEL</span>
+      </button>
+      <div class="center-control">
+        <div class="k9-head"><span>K9-WUT</span><b id="k9Pct">0%</b></div>
+        <div class="k9-meter" id="k9Meter"><i id="k9Fill"></i></div>
+        <div class="launch-wrap">
+          <button id="launchBtn" class="launch-btn ready" type="button">ABSCHUSS<small>TIPPEN ZUM STARTEN</small></button>
+        </div>
+        <div class="control-hint" id="controlHint">1 FINGER · 2 FLÜGEL · 100% WUT</div>
+      </div>
+      <button id="rightBtn" class="flip-btn" type="button" aria-label="Rechter Flipper">
+        <span class="key">▶</span>
+        <span class="lbl">RECHTS</span>
+        <span class="hint">FLÜGEL</span>
+      </button>
+    </footer>
+  </section>
+
+  <div id="modalLayer" class="modal-layer hidden" role="dialog" aria-modal="true">
+    <div id="modalCard" class="modal-card"></div>
+  </div>
+
+  <div class="rotate-hint" id="rotateHint"><div><b>BITTE HOCHKANT</b>WUMMI BRAUCHT 9:16.</div></div>
+</main>
+
+<script>/*__THREE__*/</script>
+<script>/*__GAME__*/</script>
+</body>
+</html>
