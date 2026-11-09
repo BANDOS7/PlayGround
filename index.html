@@ -2838,6 +2838,317 @@ const STORY = [
     }
   ]
 ];
-</script>
-</body>
-</html>
+/* ============================================================
+   7. RUNTIME — navigation, campaign, archive, settings, sandbox
+   ============================================================ */
+let run = null, choiceTimer = null, campClock = null, sbLoop = null;
+let rankTab = 'campaign', sandbox = null;
+const ACT_NAMES = ACTS.map(a => `AKT ${a.n} — ${a.title}`);
+function freshRun(survivor, difficulty) {
+  const d = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
+  return { survivor, difficulty: d.key, index: 0, stats: { vitals: d.vit, o2: d.o2, trust: d.tr, signal: 87 }, med: d.med, scrap: 0, score: 0, flags: {}, started: Date.now(), elapsed: 0, choices: 0, dead: false };
+}
+function saveRun() {
+  if (!run) return;
+  run.elapsed = (run.elapsed || 0) + Math.max(0, Math.floor((Date.now() - run.started) / 1000));
+  run.started = Date.now(); savedRun = JSON.parse(JSON.stringify(run)); writeJSON(STORE.save, savedRun);
+}
+function resumeRun() {
+  run = savedRun;
+  if (!run) return beginCampaign();
+  run.started = Date.now();
+  showScreen('campaign'); renderTransmission(); startCampClock();
+}
+function refreshMenuState() {
+  const b = $('#menu-continue');
+  if (b) { b.classList.toggle('hidden', !savedRun); if (savedRun) $('#continue-label').textContent = `AKT ${ACTS[Math.floor(savedRun.index / 10)]?.n || 'VII'} · ${savedRun.survivor.name.toUpperCase()}`; }
+}
+function beginCampaign(survivor = null, difficulty = settings.defaultDifficulty) {
+  if (!survivor) survivor = makeSurvivor(Date.now());
+  run = freshRun(survivor, difficulty);
+  archive.runs++; if (!archive.survivors.includes(survivor.name)) archive.survivors.push(survivor.name);
+  saveArchive(); checkAchievements();
+  showScreen('campaign'); startCampClock(); renderTransmission();
+}
+function startCampClock() {
+  clearInterval(campClock); campClock = setInterval(() => {
+    if (!run || App.screen !== 'campaign') return;
+    $('#camp-clock').textContent = 'T+' + fmtTime((run.elapsed || 0) + Math.floor((Date.now() - run.started) / 1000));
+  }, 1000);
+}
+function renderHud() {
+  if (!run) return;
+  ['vitals','o2','trust','signal'].forEach(k => {
+    const v = clamp(run.stats[k], 0, 100);
+    const num = $('#hud-' + (k === 'vitals' ? 'vitals' : k));
+    const bar = $('#bar-' + (k === 'vitals' ? 'vitals' : k));
+    if (num) num.textContent = Math.round(v);
+    if (bar) bar.style.width = v + '%';
+  });
+  const act = Math.min(6, Math.floor(run.index / 10));
+  $('#camp-act').textContent = ACT_NAMES[act];
+  $('#scene-name').textContent = ACTS[act].scene;
+  $('#scene-gender').textContent = run.survivor.gender === 'f' ? 'SUBJEKT · W' : 'SUBJEKT · M';
+}
+function addMessage(who, text, cls = '') {
+  const stream = $('#comm-stream');
+  const names = { S: run.survivor.name.toUpperCase(), N: 'NEXUS-9', H: 'HALO', Y: 'OPERATOR', X: 'UNBEKANNT' };
+  const sig = { S: 'SUB', N: 'N', H: 'H', Y: 'DU', X: '???' };
+  const kind = { S: 'subject', N: 'nexus', H: 'unknown', Y: 'you', X: 'unknown' }[who] || 'system';
+  const el = document.createElement('div'); el.className = `msg ${kind} ${cls}`;
+  el.innerHTML = `<div class="sigil">${sig[who] || 'SYS'}</div><div class="msg-body"><div class="msg-meta"><b>${esc(names[who] || who)}</b><span>· KANAL 09</span></div><div class="bubble">${esc(genderize(text, run.survivor))}</div></div>`;
+  stream.appendChild(el); stream.scrollTop = stream.scrollHeight;
+}
+function stopChoiceTimer() { clearInterval(choiceTimer); choiceTimer = null; }
+function renderTransmission() {
+  if (!run) return;
+  if (run.index >= STORY.length) return finishRun('rescue');
+  stopChoiceTimer(); renderHud();
+  const tx = STORY[run.index];
+  $('#comm-stream').innerHTML = '';
+  tx.msgs.forEach(m => addMessage(m[0], m[1]));
+  const list = $('#choice-list'); list.innerHTML = '';
+  $('#choice-prompt').textContent = tx.title;
+  const theme = CONTROL_THEMES.find(t => t.id === settings.theme);
+  $('#theme-hint').textContent = theme ? theme.hint : 'TIPPE ZUM ENTSCHEIDEN';
+  tx.choices.forEach((c, i) => {
+    const b = document.createElement('button'); b.className = 'choice-card'; b.dataset.choice = i;
+    b.innerHTML = `<span class="choice-index">0${i + 1}</span><span class="choice-copy"><strong>${esc(genderize(c.t, run.survivor).replace('{namenshalber}', run.survivor.name))}</strong><small>${esc(c.h || '')}</small></span><span class="choice-arrow">›</span>`;
+    list.appendChild(b);
+  });
+  $('#next-btn').classList.add('hidden'); $('#choice-note').textContent = 'Deine Entscheidung wird gespeichert. Es gibt kein Zurück.';
+  const timer = $('#choice-timer');
+  if (tx.timer && settings.timePressure) {
+    timer.classList.remove('hidden');
+    const mult = (DIFFICULTIES[run.difficulty] || DIFFICULTIES.normal).timer;
+    const total = Math.max(8, Math.round(tx.timer * mult * (settings.realtime === 'long' ? 1.7 : settings.realtime === 'short' ? .72 : 1)));
+    let left = total; $('#timer-num').textContent = left; $('#timer-bar').style.width = '100%';
+    choiceTimer = setInterval(() => {
+      left--; $('#timer-num').textContent = left; $('#timer-bar').style.width = (left / total * 100) + '%';
+      if (left <= 0) { stopChoiceTimer(); chooseOption(tx.choices.length - 1, true); }
+    }, 1000);
+  } else timer.classList.add('hidden');
+  saveRun();
+}
+function chooseOption(which, timedOut = false) {
+  if (!run) return;
+  const tx = STORY[run.index], c = tx && tx.choices[which];
+  if (!c || $('#next-btn').dataset.locked === '1') return;
+  stopChoiceTimer(); $('#next-btn').dataset.locked = '1';
+  const e = c.eff || {}, d = DIFFICULTIES[run.difficulty] || DIFFICULTIES.normal, loss = d.loss;
+  ['vitals','o2','trust','signal'].forEach(k => {
+    const key = ({ vitals: 'vit', o2: 'o2', trust: 'tr', signal: 'sig' })[k];
+    if (e[key] != null) run.stats[k] = clamp(run.stats[k] + Number(e[key]) * (['vitals','o2'].includes(k) ? loss : 1), 0, 100);
+  });
+  run.med = Math.max(0, run.med + (e.med || 0)); run.scrap = Math.max(0, run.scrap + (e.scrap || 0));
+  run.score += (e.score || 0) * d.score; run.choices++; archive.totalChoices++;
+  if (e.flag) run.flags[e.flag] = true;
+  addMessage('Y', genderize(c.t.replace('{namenshalber}', run.survivor.name), run.survivor));
+  if (c.reply) addMessage('S', c.reply);
+  if (timedOut) addMessage('N', 'ENTSCHEIDUNGSFENSTER ABGELAUFEN. Standardprotokoll ausgeführt.', 'urgent');
+  if (run.stats.vitals <= 0 || run.stats.o2 <= 0) {
+    run.stats.vitals = Math.max(0, run.stats.vitals); run.stats.o2 = Math.max(0, run.stats.o2);
+    $('#choice-list').innerHTML = ''; $('#next-btn').classList.remove('hidden'); $('#next-btn').textContent = 'LETZTE ÜBERTRAGUNG →';
+    $('#next-btn').onclick = () => finishRun(run.stats.o2 <= 0 ? 'oxygen' : 'heart');
+  } else if (c.ending) {
+    $('#choice-list').innerHTML = ''; $('#next-btn').classList.remove('hidden');
+    $('#next-btn').onclick = () => finishRun(c.ending);
+  } else if (c.final) {
+    $('#choice-list').innerHTML = ''; $('#next-btn').classList.remove('hidden');
+    $('#next-btn').onclick = () => finishRun(c.final === 'escape' ? (run.stats.trust > 78 && run.stats.vitals > 65 ? 'perfect' : run.stats.vitals < 42 ? 'rescue_low' : 'rescue') : c.final);
+  } else {
+    $('#next-btn').classList.remove('hidden'); $('#next-btn').onclick = () => { run.index++; $('#next-btn').dataset.locked = '0'; renderTransmission(); };
+  }
+  $('#choice-list').innerHTML = ''; $('#choice-note').textContent = timedOut ? 'ZEIT ABGELAUFEN · Entscheidung protokolliert' : 'ENTSCHEIDUNG PROTOKOLLIERT';
+  $('#next-btn').dataset.locked = '0'; renderHud(); saveRun(); checkAchievements();
+  vibrate(timedOut ? [40, 35, 40] : 20); Audio1.sfx('click');
+}
+function finishRun(id) {
+  stopChoiceTimer(); clearInterval(campClock);
+  const ending = ENDINGS.find(e => e.id === id) || ENDINGS.find(e => e.id === 'rescue');
+  const text = genderize(ending.text, run.survivor);
+  $('#ending-kicker').textContent = ending.dead ? '// SIGNAL VERLOREN' : '// TRANSMISSION BEENDET';
+  $('#ending-title').textContent = ending.title; $('#ending-sub').textContent = ending.sub;
+  $('#ending-text').textContent = text; $('#end-score').textContent = fmtNum(run.score);
+  $('#end-act').textContent = `${Math.min(7, Math.floor(run.index / 10) + 1)}/7`;
+  $('#end-trust').textContent = Math.round(run.stats.trust); $('#end-time').textContent = fmtTime((run.elapsed || 0) + Math.floor((Date.now() - run.started) / 1000));
+  if (!archive.endings.includes(id)) archive.endings.push(id);
+  ending.dead ? archive.dead++ : archive.rescued++;
+  archive.bestAct = Math.max(archive.bestAct, Math.min(7, Math.floor(run.index / 10) + 1));
+  const elapsed = (run.elapsed || 0) + Math.floor((Date.now() - run.started) / 1000);
+  ranking.campaign.push({ name: settings.operator || 'OPERATOR', subject: run.survivor.name, score: Math.round(run.score), status: ending.dead ? 'VERLOREN' : 'GERETTET', ending: ending.title, date: Date.now(), difficulty: run.difficulty });
+  ranking.campaign.sort((a,b) => b.score - a.score); ranking.campaign = ranking.campaign.slice(0, 50);
+  writeJSON(STORE.ranking, ranking); saveArchive(); checkAchievements();
+  savedRun = null; writeJSON(STORE.save, null); showScreen('ending');
+}
+function showCampaignSetup() {
+  const survivor = makeSurvivor(Date.now());
+  const cards = SURVIVORS.map((s,i) => `<button class="choice-card survivor-pick ${s.name === survivor.name ? 'selected' : ''}" data-survivor="${i}"><span class="choice-index">${s.gender === 'f' ? 'W' : 'M'}</span><span class="choice-copy"><strong>${esc(s.name)}</strong><small>${esc(s.role)} · ${s.age}</small></span><span class="choice-arrow">›</span></button>`).join('');
+  openModal(`<div class="kicker">NEUER DURCHLAUF</div><h2>Wähle dein Subjekt</h2><p>Jeder Mensch hat eine eigene Stimme. Deine Entscheidungen bestimmen, ob sie morgen noch da ist.</p><div class="setup-survivors">${cards}</div><label class="setup-label">SCHWIERIGKEIT<select id="setup-difficulty">${Object.values(DIFFICULTIES).map(d=>`<option value="${d.key}" ${d.key===settings.defaultDifficulty?'selected':''}>${d.name} — ${esc(d.extra)}</option>`).join('')}</select></label><button class="micro-btn solid" id="setup-start">KANAL ÖFFNEN →</button>`, { type: 'setup' });
+}
+function renderOptions() {
+  const host = $('#options-scroll'); if (!host) return;
+  const select = (label,key,items) => `<div class="option-row"><div><b>${label}</b><small>${items.find(x=>x[0]===settings[key])?.[2]||''}</small></div><select data-setting="${key}">${items.map(x=>`<option value="${x[0]}" ${settings[key]===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>`;
+  const toggle = (label,key,desc) => `<div class="option-row"><div><b>${label}</b><small>${desc}</small></div><button class="toggle ${settings[key]?'on':''}" data-toggle="${key}" aria-pressed="${!!settings[key]}">${settings[key]?'EIN':'AUS'}</button></div>`;
+  host.innerHTML = `<div class="panel option-group"><h2 class="opt-title">DARSTELLUNG</h2>${select('Grafikqualität','quality',[['low','Sparsam'],['balanced','Ausbalanciert'],['high','Hoch'],['ultra','Unnötig Ultra Hoch']])}${select('Akzentfarbe','accent',Object.keys(ACCENTS).map(k=>[k,k.toUpperCase()]))}${select('Textgröße','textSize',[['small','Klein'],['normal','Normal'],['large','Groß']])}${toggle('Bewegung reduzieren','reducedMotion','Animationen und Kamerabewegung begrenzen.')}</div><div class="panel option-group"><h2 class="opt-title">STEUERUNG</h2>${select('Entscheidungs-Layout','theme',CONTROL_THEMES.map(t=>[t.id,t.name,t.desc]))}${select('Eingabe','input',[['auto','Automatisch'],['one','Ein Finger'],['two','Zwei Finger']])}${toggle('Haptisches Feedback','haptics','Kurze Vibration bei Entscheidungen.')}</div><div class="panel option-group"><h2 class="opt-title">TON & SPIEL</h2>${toggle('Sound','sound','Synthetischer Ambient-Sound und Effekte.')}${toggle('Zeitdruck','timePressure','Aktiviert Entscheidungs-Timer.')}${select('Timerlänge','realtime',[['short','Kurz'],['normal','Normal'],['long','Lang']])}${select('Standardschwierigkeit','defaultDifficulty',Object.values(DIFFICULTIES).map(d=>[d.key,d.name]))}${toggle('Telefonmeldungen','notifications','Ingame-Systemmeldungen anzeigen.')}</div>`;
+  $$('[data-setting]', host).forEach(el => el.onchange = () => updateSetting(el.dataset.setting, el.value));
+  $$('[data-toggle]', host).forEach(el => el.onclick = () => updateSetting(el.dataset.toggle, !settings[el.dataset.toggle]));
+}
+function renderRanking() {
+  const data = ranking[rankTab] || [];
+  $('#rank-list').innerHTML = data.length ? data.map((r,i)=>`<div class="rank-row"><span>${String(i+1).padStart(2,'0')}</span><b>${esc(r.name||'OPERATOR')}<small>${esc(r.subject||r.difficulty||'')}</small></b><strong>${fmtNum(r.score||0)}</strong><span>${esc(r.status||'SIM')}</span></div>`).join('') : '<div class="empty-state">NOCH KEINE DATEN · SCHREIBE DEINE ERSTE GESCHICHTE</div>';
+}
+function renderArchive() {
+  $('#arch-runs').textContent=archive.runs||0; $('#arch-rescued').textContent=archive.rescued||0; $('#arch-dead').textContent=archive.dead||0; $('#arch-endings').textContent=`${archive.endings.length}/16`;
+  $('#ending-grid').innerHTML=ENDINGS.map(e=>`<div class="ending-tile ${archive.endings.includes(e.id)?'unlocked':'locked'}"><b>${archive.endings.includes(e.id)?esc(e.title):'???'}</b><small>${archive.endings.includes(e.id)?esc(e.sub):'NOCH NICHT ENTSCHLÜSSELT'}</small></div>`).join('');
+  $('#achievement-list').innerHTML=ACHIEVEMENTS.map(a=>`<div class="achievement ${archive.achievements.includes(a.id)?'unlocked':''}"><b>${archive.achievements.includes(a.id)?'◆':'◇'} ${esc(a.name)}</b><small>${esc(a.desc)}</small></div>`).join('');
+  $('#codex-list').innerHTML=CODEX.map(c=>`<details class="codex-entry"><summary>${esc(c.title)}</summary><p>${esc(c.text)}</p></details>`).join('');
+}
+function saveArchive(){writeJSON(STORE.archive,archive)}
+
+/* ============================================================
+   5. SANDBOX — deterministic arena simulation
+   ============================================================ */
+const Sandbox = {
+  active: false, paused: false, player: null, enemies: [], particles: [], pickups: [],
+  config: null, score: 0, kills: 0, room: 1, elapsed: 0, lastShot: 0,
+  pointer: new Map(), keys: new Set(), power: { stasis: 0, shield: 0, overcharge: 0 },
+  colors: { drone: '#ffbf69', guard: '#ff6e7c', hunter: '#d78cff', swarm: '#8effa0' },
+  start() {
+    const seedText = $('#sb-seed').value.trim();
+    const seed = seedText ? (Number(seedText) >>> 0) : (Date.now() >>> 0);
+    const enemies = $$('.sb-toggle.on').map(b => b.dataset.enemy);
+    const rng = mulberry32(seed || 9009);
+    this.config = {
+      seed, rooms: Number($('#sb-rooms').value), density: Number($('#sb-density').value),
+      difficulty: $('#sb-difficulty').value, weapon: $('#sb-weapon').value, enemies: enemies.length ? enemies : ['drone'],
+      loot: Number($('#sb-loot').value), fog: Number($('#sb-fog').value), speed: Number($('#sb-speed').value),
+      hp: Number($('#sb-hp').value), input: $('#sb-input').value, rng
+    };
+    this.active = true; this.paused = false; this.score = 0; this.kills = 0; this.room = 1; this.elapsed = 0;
+    this.player = { x: 195, y: 390, r: 8, hp: this.config.hp, max: this.config.hp, vx: 0, vy: 0, invuln: 0 };
+    this.enemies = []; this.particles = []; this.pickups = [];
+    this.power = { stasis: 0, shield: 0, overcharge: 0 };
+    this.spawnRoom();
+    $('#sb-lobby').classList.add('hidden'); $('#sb-game').classList.add('on');
+    $('#sb-control-hint').textContent = this.config.input === 'two' ? 'LINKS ZIEHEN = BEWEGEN · RECHTS ZIELEN & FEUERN' : 'ZIEHEN = BEWEGEN · AUTOFEUER AKTIV';
+    Scene && Scene.setMode('sandbox');
+    Audio1.setMode('combat'); this.updateHud();
+  },
+  spawnRoom() {
+    const c = this.config, n = Math.round(c.density * (.8 + c.room / c.rooms * .45));
+    for (let i = 0; i < n; i++) {
+      const type = pick(c.enemies, c.rng), edge = Math.floor(c.rng() * 4);
+      const w = Scene ? Scene.w : 390, h = Scene ? Scene.h : 694;
+      const x = edge === 0 ? 8 : edge === 1 ? w - 8 : c.rng() * w;
+      const y = edge === 2 ? 150 : edge === 3 ? h - 20 : 150 + c.rng() * Math.max(100, h - 190);
+      const mult = ({ easy: .72, normal: 1, hard: 1.3, nightmare: 1.65, impossible: 2 })[c.difficulty] || 1;
+      const stats = ({ drone: [13, 30, 30], guard: [20, 42, 24], hunter: [9, 22, 52], swarm: [7, 13, 38] })[type] || [13, 30, 30];
+      this.enemies.push({ x, y, r: stats[0], hp: stats[1] * mult, max: stats[1] * mult, speed: stats[2] * mult, type, phase: c.rng() * TAU, shot: c.rng() * 2 });
+    }
+    this.updateHud();
+  },
+  updateHud() {
+    if (!this.player) return;
+    $('#sb-vital').textContent = Math.ceil(this.player.hp);
+    $('#sb-vital-bar').style.width = clamp(this.player.hp / this.player.max * 100, 0, 100) + '%';
+    $('#sb-hostiles').textContent = this.enemies.length;
+    $('#sb-score').textContent = fmtNum(this.score);
+    $('#sb-objective').textContent = `SEKTOR ${this.room}/${this.config.rooms}`;
+  },
+  draw(ctx, w, h, dt, t) {
+    if (!this.active || !this.player) return;
+    const c = this.config, p = this.player;
+    if (!this.paused) {
+      this.elapsed += dt;
+      const move = this.getMove(w, h);
+      const speed = 62 + c.speed * 13;
+      p.vx = lerp(p.vx, move.x * speed, Math.min(1, dt * 7)); p.vy = lerp(p.vy, move.y * speed, Math.min(1, dt * 7));
+      p.x = clamp(p.x + p.vx * dt, 14, w - 14); p.y = clamp(p.y + p.vy * dt, 125, h - 26);
+      p.invuln = Math.max(0, p.invuln - dt);
+      Object.keys(this.power).forEach(k => this.power[k] = Math.max(0, this.power[k] - dt));
+      this.stepEnemies(dt, w, h); this.autoFire(t); this.stepParticles(dt);
+      if (!this.enemies.length) {
+        if (this.room >= c.rooms) return this.finish(true);
+        this.room++; this.score += this.room * 100; this.spawnRoom();
+        if (c.rng() * 10 < c.loot) this.pickups.push({ x: 35 + c.rng() * (w - 70), y: 145 + c.rng() * (h - 230), r: 7, kind: 'heal', life: 9 });
+        this.updateHud(); Audio1.sfx('success');
+      }
+    }
+    this.drawArena(ctx, w, h, t);
+    this.pickups.forEach(o => { o.life -= dt; ctx.beginPath(); ctx.arc(o.x, o.y, o.r + Math.sin(t * 5) * 1.4, 0, TAU); ctx.fillStyle = '#a9ff72'; ctx.shadowColor = '#a9ff72'; ctx.shadowBlur = 12; ctx.fill(); ctx.shadowBlur = 0; if (Math.hypot(o.x-p.x,o.y-p.y)<p.r+o.r) { p.hp=Math.min(p.max,p.hp+24); o.life=0; Audio1.sfx('heal'); this.updateHud(); } });
+    this.pickups = this.pickups.filter(o => o.life > 0);
+    this.enemies.forEach(e => this.drawEnemy(ctx, e, t));
+    this.particles.forEach(a => { ctx.globalAlpha = clamp(a.life,0,1); ctx.fillStyle = a.color; ctx.fillRect(a.x,a.y,a.s,a.s); }); ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(Math.atan2(p.vy,p.vx) || 0);
+    ctx.globalAlpha = p.invuln > 0 && Math.floor(t * 18) % 2 ? .35 : 1;
+    ctx.shadowColor = '#71f6ff'; ctx.shadowBlur = 18; ctx.fillStyle = '#c9fbff';
+    ctx.beginPath(); ctx.moveTo(11,0); ctx.lineTo(-7,-6); ctx.lineTo(-4,0); ctx.lineTo(-7,6); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0; ctx.restore();
+    if (c.fog > 0) { const g = ctx.createRadialGradient(p.x,p.y,25,p.x,p.y,Math.max(w,h)*.8); g.addColorStop(0,'rgba(1,6,9,0)'); g.addColorStop(1,`rgba(1,5,8,${c.fog*.025})`); ctx.fillStyle=g;ctx.fillRect(0,0,w,h); }
+    if (this.paused) this.drawOverlay(ctx,w,h,'SIMULATION PAUSIERT','Tippe auf ▶ oder die Taste P, um fortzufahren.');
+  },
+  drawArena(ctx,w,h,t) {
+    ctx.fillStyle = '#030a0e'; ctx.fillRect(0,0,w,h);
+    const step = 34; ctx.strokeStyle = 'rgba(113,246,255,.07)'; ctx.lineWidth = 1;
+    for(let x=0;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,110);ctx.lineTo(x,h);ctx.stroke();}
+    for(let y=116;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+    ctx.strokeStyle='rgba(113,246,255,.2)';ctx.strokeRect(7,112,w-14,h-125);
+    ctx.fillStyle='rgba(113,246,255,.4)';ctx.font='7px monospace';ctx.fillText(`SEED ${this.config.seed} // ROOM ${String(this.room).padStart(2,'0')}`,14,130);
+  },
+  drawEnemy(ctx,e,t) {
+    ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.phase + t*.25);ctx.shadowColor=this.colors[e.type];ctx.shadowBlur=12;ctx.strokeStyle=this.colors[e.type];ctx.fillStyle='rgba(7,17,22,.95)';ctx.lineWidth=1.5;
+    if(e.type==='swarm'){ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r,e.r);ctx.lineTo(-e.r,e.r);ctx.closePath();}
+    else if(e.type==='guard'){ctx.beginPath();ctx.rect(-e.r,-e.r,e.r*2,e.r*2);}
+    else {ctx.beginPath();ctx.arc(0,0,e.r,0,TAU);}
+    ctx.fill();ctx.stroke();ctx.shadowBlur=0;ctx.fillStyle=this.colors[e.type];ctx.beginPath();ctx.arc(e.r*.3,0,2,0,TAU);ctx.fill();ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.16)';ctx.fillRect(e.x-e.r,e.y-e.r-5,e.r*2,2);ctx.fillStyle=this.colors[e.type];ctx.fillRect(e.x-e.r,e.y-e.r-5,e.r*2*clamp(e.hp/e.max,0,1),2);
+  },
+  getMove(w,h) {
+    let x=(this.keys.has('d')||this.keys.has('arrowright')?1:0)-(this.keys.has('a')||this.keys.has('arrowleft')?1:0);
+    let y=(this.keys.has('s')||this.keys.has('arrowdown')?1:0)-(this.keys.has('w')||this.keys.has('arrowup')?1:0);
+    const pts=Array.from(this.pointer.values());
+    const movePoint=pts[0];
+    if(movePoint){const dx=movePoint.x-this.player.x,dy=movePoint.y-this.player.y,len=Math.hypot(dx,dy);if(len>10){x=dx/len;y=dy/len;}else{x=0;y=0;}}
+    const len=Math.hypot(x,y)||1;return{x:x/len,y:y/len};
+  },
+  stepEnemies(dt,w,h) {
+    const p=this.player, frozen=this.power.stasis>0;
+    this.enemies.forEach(e=>{
+      const dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy)||1;
+      if(!frozen){e.x+=dx/d*e.speed*dt;e.y+=dy/d*e.speed*dt;e.phase+=dt;}
+      if(d<e.r+p.r+2 && p.invuln<=0 && this.power.shield<=0){p.hp-= e.type==='swarm'?5:10;p.invuln=.6;Audio1.sfx('hit');vibrate(25);this.updateHud();if(p.hp<=0)this.finish(false);}
+    });
+  },
+  autoFire(t) {
+    const p=this.player;if(t-this.lastShot< (this.power.overcharge>0?100:260))return;
+    if(!this.enemies.length)return;
+    let target=null,dist=Infinity;
+    const pts=Array.from(this.pointer.values());
+    if(this.config.input==='two'&&pts.length>1){let aim=pts[1];target=this.enemies.reduce((a,e)=>Math.hypot(e.x-aim.x,e.y-aim.y)<Math.hypot((a||e).x-aim.x,(a||e).y-aim.y)?e:a,null);}
+    if(!target){this.enemies.forEach(e=>{const d=Math.hypot(e.x-p.x,e.y-p.y);if(d<dist){dist=d;target=e;}});}
+    if(!target)return;
+    this.lastShot=t;let damage=({plasma:22,smg:9,shotgun:30,rail:55,arc:18})[this.config.weapon]||20;
+    if(this.power.overcharge>0)damage*=1.8;
+    const dx=target.x-p.x,dy=target.y-p.y,len=Math.hypot(dx,dy)||1;
+    this.particles.push({x:p.x,y:p.y, vx:dx/len*430,vy:dy/len*430,life:.22,color:'#71f6ff',s:3,shot:true});
+    target.hp-=damage;
+    if(target.hp<=0){this.enemies.splice(this.enemies.indexOf(target),1);this.kills++;this.score+=100;archive.sandboxKills++;this.particles.push(...Array.from({length:8},()=>({x:target.x,y:target.y,vx:(Math.random()-.5)*100,vy:(Math.random()-.5)*100,life:.45,color:this.colors[target.type],s:2})));if(Math.random()<this.config.loot*.012)this.pickups.push({x:target.x,y:target.y,r:7,kind:'heal',life:8});checkAchievements();}
+    Audio1.sfx(this.config.weapon==='rail'?'rail':'gun');this.updateHud();
+  },
+  stepParticles(dt) { this.particles.forEach(a=>{a.x+=(a.vx||0)*dt;a.y+=(a.vy||0)*dt;a.life-=dt;});this.particles=this.particles.filter(a=>a.life>0); },
+  drawOverlay(ctx,w,h,title,sub) {ctx.fillStyle='rgba(1,5,8,.78)';ctx.fillRect(0,0,w,h);ctx.textAlign='center';ctx.fillStyle='#71f6ff';ctx.font='bold 17px sans-serif';ctx.fillText(title,w/2,h/2-5);ctx.fillStyle='#b8cbd0';ctx.font='8px monospace';ctx.fillText(sub,w/2,h/2+15);ctx.textAlign='left';},
+  togglePause() {if(!this.active)return;this.paused=!this.paused;$('#sb-pause').innerHTML=this.paused?'▶':'Ⅱ';},
+  usePower(id) {if(!this.active||this.power[id]>0)return;this.power[id]=id==='stasis'?4: id==='shield'?5:6;if(id==='stasis')this.enemies.forEach(e=>e.stunned=true);if(id==='shield')this.player.invuln=5;if(id==='overcharge')this.lastShot=0;Audio1.sfx('success');toast(`POWER-UP · ${id.toUpperCase()}`,'good');},
+  finish(won) {
+    if(!this.active)return;this.active=false;this.paused=false;Audio1.setMode('menu');
+    const score=Math.round(this.score+this.elapsed*10+this.kills*35);archive.sandboxBest=Math.max(archive.sandboxBest,score);saveArchive();
+    ranking.sandbox.push({name:settings.operator||'OPERATOR',subject:`${this.kills} HOSTILES`,score,status:won?'BEREINIGT':'AUSGEFALLEN',date:Date.now(),difficulty:this.config.difficulty});ranking.sandbox.sort((a,b)=>b.score-a.score);ranking.sandbox=ranking.sandbox.slice(0,50);writeJSON(STORE.ranking,ranking);
+    $('#sb-best').textContent=fmtNum(archive.sandboxBest);
+    const old=$('#sb-result-overlay');if(old)old.remove();
+    const ov=document.createElement('div');ov.id='sb-result-overlay';ov.className='sb-overlay';ov.innerHTML=`<div class="sb-result"><div class="kicker">${won?'SEKTOR GESICHERT':'SIGNAL VERLOREN'}</div><h2>${won?'BEREINIGT':'AUSGEFALLEN'}</h2><p>${won?'Alle Sektoren sind frei.':'Dein Signal ist im Nullraum verstummt.'}</p><div class="result-grid"><div><b>${fmtNum(score)}</b><span>SCORE</span></div><div><b>${this.kills}</b><span>HOSTILES</span></div><div><b>${this.room}/${this.config.rooms}</b><span>SEKTOREN</span></div><div><b>${fmtTime(this.elapsed)}</b><span>ZEIT</span></div></div><button class="micro-btn solid" data-sb-result="again">NOCH EIN LAUF</button><button class="micro-btn ghost" data-sb-result="exit">ZURÜCK ZUM LOBBY</button></div>`;
+    $('#screen-sandbox').appendChild(ov);$('#sb-game').classList.remove('on');
+    if(won)Audio1.sfx('success');else Audio1.sfx('death');
+  }
+};
+
